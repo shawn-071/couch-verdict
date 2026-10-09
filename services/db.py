@@ -1,18 +1,15 @@
 """SQLite storage for Couch Verdict.
 
-Note: Streamlit Community Cloud containers are ephemeral — the database is
-wiped when the app restarts. It powers live activity statistics for the
-running instance; it is not permanent global history.
+Streamlit Community Cloud containers are ephemeral. The database powers
+activity statistics and voting records for the running instance; it is not
+permanent global history.
 """
-
 from __future__ import annotations
 
 import json
 import os
 import sqlite3
 from contextlib import contextmanager
-
-import streamlit as st
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "couch_verdict.db")
 
@@ -83,20 +80,16 @@ def upsert_user(name: str) -> int:
 
 
 def hash_password(name: str, password: str) -> str:
-    """Salted SHA-256 (salt = username). Adequate for a movie-night app."""
+    """Salted SHA-256 (salt = username), retained for legacy account data."""
     import hashlib
-
     return hashlib.sha256(f"couch::{name}::{password}".encode()).hexdigest()
 
 
 def register_user(name: str, password: str) -> tuple[int | None, str]:
-    """Create an account. Returns (user_id, error_message)."""
     if not name.strip() or not password:
         return None, "Enter a name and a password."
     with _conn() as connection:
-        existing = connection.execute(
-            "SELECT id FROM users WHERE name = ?", (name.strip(),)
-        ).fetchone()
+        existing = connection.execute("SELECT id FROM users WHERE name = ?", (name.strip(),)).fetchone()
         if existing:
             return None, "That name is taken — try signing in instead."
         cursor = connection.execute(
@@ -107,11 +100,8 @@ def register_user(name: str, password: str) -> tuple[int | None, str]:
 
 
 def login_user(name: str, password: str) -> tuple[int | None, str]:
-    """Verify credentials. Returns (user_id, error_message)."""
     with _conn() as connection:
-        row = connection.execute(
-            "SELECT id, password_hash FROM users WHERE name = ?", (name.strip(),)
-        ).fetchone()
+        row = connection.execute("SELECT id, password_hash FROM users WHERE name = ?", (name.strip(),)).fetchone()
     if not row:
         return None, "No account with that name — create one first."
     if row["password_hash"] != hash_password(name.strip(), password):
@@ -119,7 +109,7 @@ def login_user(name: str, password: str) -> tuple[int | None, str]:
     return row["id"], ""
 
 
-def create_movie_night(user_id: int, preferences: dict) -> int:
+def create_movie_night(user_id: int | None, preferences: dict) -> int:
     with _conn() as connection:
         cursor = connection.execute(
             "INSERT INTO movie_nights (user_id, preferences) VALUES (?, ?)",
@@ -177,7 +167,6 @@ def get_stats() -> dict:
         def count(query, params=()):
             row = connection.execute(query, params).fetchone()
             return row[0] if row else 0
-
         return {
             "movie_nights": count("SELECT COUNT(*) FROM movie_nights"),
             "recommendations": count("SELECT COUNT(*) FROM recommendations"),

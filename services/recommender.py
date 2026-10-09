@@ -1,24 +1,9 @@
-"""Recommendation engine: always tries to return 5 distinct movies.
-
-Relaxation ladder (the age ceiling is NEVER relaxed):
-1. Exact match: all chosen genres, chosen services, runtime cap, age cap.
-2. Any of the chosen genres.
-3. Any runtime (genre + services + age cap kept).
-4. Top picks on the chosen services (age cap kept).
-5. Popular movies regardless of service (age cap kept).
-
-Each result carries a label describing what was relaxed, so the UI can be
-honest about near-matches. If TMDB cannot supply five age-suitable movies,
-fewer are returned and the UI says so.
-"""
-
+"""Recommendation engine: return up to five distinct movies, preserving the age ceiling."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
 from services import tmdb_client
 
-# US rating severity ranking (G is safest).
 _CERT_RANK = {
     "G": 0, "TV-G": 0, "TV-Y": 0, "TV-Y7": 1,
     "PG": 1, "TV-PG": 1,
@@ -26,13 +11,7 @@ _CERT_RANK = {
     "R": 3, "TV-MA": 3,
     "NC-17": 4,
 }
-
-AUDIENCE_CERT_CEILING = {
-    "kids": "PG",
-    "mixed": "PG-13",
-    "adults": None,
-}
-
+AUDIENCE_CERT_CEILING = {"kids": "PG", "mixed": "PG-13", "adults": None}
 TARGET = 5
 
 
@@ -62,16 +41,14 @@ class MovieMatch:
 
 
 def _cert_ok(cert: str | None, ceiling: str | None) -> bool:
-    """Client-side age check. Unknown ratings are not treated as age-safe."""
+    """Unknown ratings are not treated as age-safe when an age ceiling is set."""
     if ceiling is None:
         return True
     if cert is None:
         return False
     rank = _CERT_RANK.get(cert.upper().replace(" ", "-"))
     ceiling_rank = _CERT_RANK.get(ceiling.upper())
-    if rank is None or ceiling_rank is None:
-        return False
-    return rank <= ceiling_rank
+    return rank is not None and ceiling_rank is not None and rank <= ceiling_rank
 
 
 def find_five_movies(
@@ -82,68 +59,77 @@ def find_five_movies(
     cert_ceiling: str | None = None,
     min_year: int | None = None,
     language: str | None = None,
+    release_decades: list[int] | None = None,
 ) -> tuple[list[MovieMatch], list[str]]:
-    """Return (matches, notes). matches has up to 5 distinct movies.
+    """Return up to five matches. Runtime and selected release decades stay strict.
 
-    notes lists the relaxation steps that were needed.
+    Genre and provider preferences may be broadened to find alternatives, but a
+    requested runtime ceiling is never relaxed. Movies with an unknown runtime
+    are excluded when a ceiling is active.
     """
+    from datetime import date
+
     steps = [
         {
-            "label": "Exact match",
-            "pct": 97,
-            "params": dict(genre_ids=genre_ids, genre_mode="and",
-                          provider_ids=provider_ids, region=region,
-                          max_runtime=max_runtime, cert_ceiling=cert_ceiling,
-                          min_year=min_year, language=language),
-            "check_runtime": bool(max_runtime),
+            "label": "Exact match", "pct": 97,
+            "params": dict(genre_ids=genre_ids, genre_mode="and", provider_ids=provider_ids,
+                           region=region, max_runtime=max_runtime, cert_ceiling=cert_ceiling,
+                           language=language),
         },
         {
-            "label": "Near match — any of your genres",
-            "pct": 88,
-            "params": dict(genre_ids=genre_ids, genre_mode="or",
-                          provider_ids=provider_ids, region=region,
-                          max_runtime=max_runtime, cert_ceiling=cert_ceiling,
-                          min_year=min_year, language=language),
-            "check_runtime": bool(max_runtime),
+            "label": "Near match — any of your genres", "pct": 88,
+            "params": dict(genre_ids=genre_ids, genre_mode="or", provider_ids=provider_ids,
+                           region=region, max_runtime=max_runtime, cert_ceiling=cert_ceiling,
+                           language=language),
         },
         {
-            "label": "Near match — any length",
-            "pct": 82,
-            "params": dict(genre_ids=genre_ids, genre_mode="or",
-                          provider_ids=provider_ids, region=region,
-                          max_runtime=None, cert_ceiling=cert_ceiling,
-                          min_year=min_year, language=language),
-            "check_runtime": False,
+            "label": "Near match — top picks on your services", "pct": 74,
+            "params": dict(genre_ids=None, provider_ids=provider_ids, region=region,
+                           max_runtime=max_runtime, cert_ceiling=cert_ceiling,
+                           language=language),
         },
         {
-            "label": "Near match — top picks on your services",
-            "pct": 74,
-            "params": dict(genre_ids=None, provider_ids=provider_ids,
-                          region=region, max_runtime=None,
-                          cert_ceiling=cert_ceiling, min_year=min_year,
-                          language=language),
-            "check_runtime": False,
-        },
-        {
-            "label": "Near match — popular beyond your services",
-            "pct": 66,
+            "label": "Near match — popular beyond your services", "pct": 66,
             "params": dict(genre_ids=None, provider_ids=None, region=region,
-                          max_runtime=None, cert_ceiling=cert_ceiling,
-                          min_year=min_year, language=language),
-            "check_runtime": False,
+                           max_runtime=max_runtime, cert_ceiling=cert_ceiling,
+                           language=language),
         },
     ]
+
+    decades = sorted(set(int(decade) for decade in (release_decades or []) if int(decade) >= 1800))
+
+    def fetch_candidates(params: dict) -> list[dict]:
+        # Query each selected decade separately so a selection like 1980s + 2020s
+        # never accidentally includes movies from the 1990s, 2000s, or 2010s.
+        if not decades:
+            return tmdb_client.discover(min_year=min_year, pages=2, **params)
+        combined: dict[int, dict] = {}
+        current_year = date.today().year
+        for decade in decades:
+            year_end = min(decade + 9, current_year)
+            if decade > year_end:
+                continue
+            raw_for_decade = tmdb_client.discover(
+                min_year=decade, max_year=year_end, pages=2, **params
+            )
+            for item in raw_for_decade:
+                movie_id = item.get("id")
+                if movie_id:
+                    combined[movie_id] = item
+        return sorted(
+            combined.values(),
+            key=lambda item: float(item.get("popularity") or 0),
+            reverse=True,
+        )
 
     matches: list[MovieMatch] = []
     seen: set[int] = set()
     used_steps: list[str] = []
-
     for step in steps:
         try:
-            raw = tmdb_client.discover(pages=2, **step["params"])
+            raw = fetch_candidates(step["params"])
         except tmdb_client.TMDBApiError:
-            break  # surface whatever we have; UI reports the failure
-
+            break
         for entry in raw:
             if len(matches) >= TARGET:
                 break
@@ -153,42 +139,47 @@ def find_five_movies(
             try:
                 details = tmdb_client.movie_details(movie_id)
             except Exception:
-                continue  # skip movies whose details can't be verified
-
-            runtime = details.get("runtime")
-            if step["check_runtime"] and max_runtime and runtime and runtime > max_runtime:
                 continue
-
+            runtime = details.get("runtime")
+            if max_runtime and (not runtime or runtime > max_runtime):
+                continue
+            # Extra client-side checks guard against incomplete or inconsistent API data.
+            release_date = (entry.get("release_date") or "")
+            if decades:
+                try:
+                    release_year = int(release_date[:4])
+                except (TypeError, ValueError):
+                    continue
+                if not any(decade <= release_year <= min(decade + 9, date.today().year) for decade in decades):
+                    continue
+            if min_year and not decades:
+                try:
+                    if int(release_date[:4]) < min_year:
+                        continue
+                except (TypeError, ValueError):
+                    continue
             cert = tmdb_client.us_certification(details)
             if not _cert_ok(cert, cert_ceiling):
                 continue
-
             seen.add(movie_id)
             if step["label"] not in used_steps:
                 used_steps.append(step["label"])
-
             providers = tmdb_client.flatrate_providers_for_region(details, region)
-
-            year = (entry.get("release_date") or "")[:4]
-            # Small popularity bonus within each relaxation step.
             bonus = min(2, round(entry.get("vote_average", 0) / 10))
-            matches.append(
-                MovieMatch(
-                    movie_id=movie_id,
-                    title=entry.get("title", "Untitled"),
-                    year=year,
-                    poster_path=entry.get("poster_path"),
-                    runtime=runtime,
-                    certification=cert,
-                    genre_ids=entry.get("genre_ids", []),
-                    vote_average=entry.get("vote_average", 0.0),
-                    overview=entry.get("overview", ""),
-                    providers=providers,
-                    match_label=step["label"],
-                    match_pct=step["pct"] + bonus,
-                )
-            )
+            matches.append(MovieMatch(
+                movie_id=movie_id,
+                title=entry.get("title", "Untitled"),
+                year=release_date[:4],
+                poster_path=entry.get("poster_path"),
+                runtime=runtime,
+                certification=cert,
+                genre_ids=entry.get("genre_ids", []),
+                vote_average=entry.get("vote_average", 0.0),
+                overview=entry.get("overview", ""),
+                providers=providers,
+                match_label=step["label"],
+                match_pct=step["pct"] + bonus,
+            ))
         if len(matches) >= TARGET:
             break
-
     return matches, used_steps
