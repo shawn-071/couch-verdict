@@ -1,35 +1,16 @@
 # 🍿 Couch Verdict
 
-**Find a movie everyone can agree on — in under two minutes.**
+A simple, mobile-first movie-night picker. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
 
-Couch Verdict ends family movie-night decision paralysis. Pick the streaming
-services you actually pay for, set your group's shared limits (who's watching,
-genres, time available), and get exactly five movies that fit — then let the
-group vote.
+## How it works
 
-## Features
+1. Choose your streaming region, services, audience, genres, runtime, year, and language.
+2. Add the names of everyone voting.
+3. Review the movie shortlist found using TMDB.
+4. Each person picks one movie on their turn and passes the phone to the next person.
+5. The movie with the most picks wins. If there is a tie, the app recommends the highest-rated tied movie on TMDB; the group can randomize the winner with an animation.
 
-- **Shared-preference filter**: streaming services, audience age level
-  (kids / mixed / adults), up to 3 genres, runtime cap, release year and
-  language.
-- **Always five movies**: a relaxation ladder keeps broadening the search
-  (any of your genres → any length → top picks on your services) until five
-  verified matches are found. Near-matches are labelled honestly, and the
-  **age ceiling is never relaxed** — movies without a verified US rating are
-  never shown as kid-safe.
-- **Group voting**: everyone votes Watch this / Maybe / Pass; the majority
-  pick becomes the verdict.
-- **Live statistics** on the home page: movie nights, recommendations, votes,
-  saved movies (activity for the current deployment instance).
-- **Accounts with passwords**: create an account or sign in; voters just type their name.
-- **Saved watchlist** per profile.
-
-## Data & credits
-
-Movie data and streaming availability come from
-[TMDB](https://www.themoviedb.org). Age ratings shown are US theatrical
-ratings (G / PG / PG-13). Streaming availability depends on the selected
-region.
+There is no account or sidebar. The app no longer displays the deployment-instance activity message.
 
 ## Run locally
 
@@ -37,46 +18,37 @@ region.
 pip install -r requirements.txt
 ```
 
-Create `.streamlit/secrets.toml` (copy the example) and add your TMDB API key:
+Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and add your TMDB API key:
 
 ```toml
 [tmdb]
 api_key = "YOUR_TMDB_API_KEY"
 ```
 
-Then:
+Then run:
 
 ```bash
 streamlit run app.py
 ```
 
-## Deploy on Streamlit Community Cloud
-
-1. Push this repo to GitHub.
-2. On [share.streamlit.io](https://share.streamlit.io), create a new app from
-   the repo with `app.py` as the entry point.
-3. In the app's **Settings → Secrets**, paste:
-
-```toml
-[tmdb]
-api_key = "YOUR_TMDB_API_KEY"
-```
-
-4. Reboot the app. Done — no key ever touches GitHub.
+For Streamlit Community Cloud, paste the same TOML block into the app's **Settings → Secrets**. Never commit a real API key to GitHub.
 
 ## Project structure
 
 ```text
 couch-verdict/
-├── app.py                    # UI: home, preferences, results, vote, saved
+├── app.py
 ├── requirements.txt
 ├── services/
-│   ├── tmdb_client.py        # TMDB API calls (cached)
-│   ├── recommender.py        # always-5 relaxation engine
-│   └── db.py                 # SQLite stats, votes, watchlist
+│   ├── __init__.py
+│   ├── db.py
+│   ├── recommender.py
+│   └── tmdb_client.py
 └── .streamlit/
-    └── secrets.toml.example  # template; real secrets stay local/cloud-only
+    ├── config.toml
+    └── secrets.toml.example
 ```
 
-Note: the SQLite database lives in the app container, so stats reset if the
-app restarts on Community Cloud.
+Movie information, ratings, posters, and streaming availability come from [TMDB](https://www.themoviedb.org). Streaming availability depends on the selected region. US age ratings are used by the recommendation engine.
+
+The local SQLite database is not permanent storage on Streamlit Community Cloud; its contents may reset when the app container restarts.
