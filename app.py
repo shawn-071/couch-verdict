@@ -1,4 +1,4 @@
-"""Couch Verdict: a simple, mobile-first group movie picker."""
+"""Couch Verdict V.4.0: a simple, mobile-first group movie picker."""
 from __future__ import annotations
 
 import random
@@ -34,12 +34,13 @@ REGIONS = {
     "Germany": "DE",
     "Turkey": "TR",
 }
-RUNTIME_OPTIONS = {"Any length": None, "Under 90 minutes": 90, "Under 2 hours": 120}
-ERA_OPTIONS = {
-    "Any release year": None,
-    "2010 or newer": 2010,
-    "2015 or newer": 2015,
-    "2020 or newer": 2020,
+RUNTIME_OPTIONS = {"Any length": None, "Up to 90 minutes": 90, "Up to 2 hours": 120}
+DECADE_OPTIONS = {
+    "1980s": 1980,
+    "1990s": 1990,
+    "2000s": 2000,
+    "2010s": 2010,
+    "2020s": 2020,
 }
 LANGUAGE_OPTIONS = {
     "Any language": None,
@@ -124,6 +125,19 @@ def remove_member_callback(index: int) -> None:
     st.session_state.member_error = None
 
 
+def release_decade_changed() -> None:
+    current = list(st.session_state.get("release_decade_picker", ["Any decade"]))
+    previous = list(st.session_state.get("_last_release_decade_picker", ["Any decade"]))
+    has_any_now = "Any decade" in current
+    has_any_before = "Any decade" in previous
+    has_specific = any(value != "Any decade" for value in current)
+    if has_any_now and has_specific:
+        # Adding a specific decade removes the default; adding Any decade clears specifics.
+        current = ["Any decade"] if not has_any_before else [v for v in current if v != "Any decade"]
+    st.session_state["release_decade_picker"] = current
+    st.session_state["_last_release_decade_picker"] = list(current)
+
+
 def get_genre_label(ids: list[int]) -> str:
     try:
         genres = tmdb_client.get_genres()
@@ -196,10 +210,6 @@ def render_waste_stats() -> None:
         ("All time", estimate_hours_since(all_time_start, now)),
     ]
     st.markdown("### The global movie-decision tax")
-    st.caption(
-        "A playful simulated estimate, not real analytics. Formula: 480 imaginary groups/day × "
-        "18 minutes spent deciding = 144 aggregate hours/day. All-time starts 1 Jan 2025. Counters refresh every 3 seconds."
-    )
     for columns, items in ((st.columns(2), stats[:2]), (st.columns(2), stats[2:4])):
         for column, (label, hours) in zip(columns, items):
             with column:
@@ -228,7 +238,7 @@ def page_home() -> None:
     )
     render_waste_stats()
     st.write("")
-    if st.button("Start a movie night  →", type="primary", use_container_width=True):
+    if st.button("Start a movie night", type="primary", use_container_width=True):
         go("preferences")
     st.caption("Movie information and ratings supplied by TMDB.")
 
@@ -254,6 +264,18 @@ def page_preferences() -> None:
         st.error(f"TMDB could not load the preferences: {exc}")
         st.info("Check your connection, then refresh the app.")
         return
+
+    st.session_state.setdefault("release_decade_picker", ["Any decade"])
+    st.session_state.setdefault("_last_release_decade_picker", ["Any decade"])
+    decade_choices = ["Any decade", *DECADE_OPTIONS.keys()]
+    decade_selection = st.multiselect(
+        "Release decades",
+        decade_choices,
+        key="release_decade_picker",
+        on_change=release_decade_changed,
+        help="Choose one or more decades. Any decade includes every release year.",
+    )
+    chosen_decades = [value for value in decade_selection if value != "Any decade"]
 
     with st.form("preferences_form"):
         popular = [name for name in [
@@ -283,11 +305,10 @@ def page_preferences() -> None:
         )
         c1, c2 = st.columns(2)
         with c1:
-            runtime_label = st.selectbox("Time available", list(RUNTIME_OPTIONS.keys()))
+            runtime_label = st.selectbox("Maximum movie length", list(RUNTIME_OPTIONS.keys()))
         with c2:
-            era_label = st.selectbox("Release year", list(ERA_OPTIONS.keys()))
-        lang_label = st.selectbox("Movie language", list(LANGUAGE_OPTIONS.keys()))
-        submitted = st.form_submit_button("Next: add members  →", type="primary", use_container_width=True)
+            lang_label = st.selectbox("Movie language", list(LANGUAGE_OPTIONS.keys()))
+        submitted = st.form_submit_button("Next: add members", type="primary", use_container_width=True)
 
     if submitted:
         if not chosen_services:
@@ -304,14 +325,14 @@ def page_preferences() -> None:
             "audience_label": audience_label,
             "genres": chosen_genres,
             "max_runtime": RUNTIME_OPTIONS[runtime_label],
-            "min_year": ERA_OPTIONS[era_label],
+            "release_decades": [DECADE_OPTIONS[label] for label in chosen_decades],
             "language": LANGUAGE_OPTIONS[lang_label],
         }
         st.session_state.results = []
         st.session_state.verdict = None
         go("members")
 
-    if st.button("← Back home", use_container_width=True):
+    if st.button("Back home", use_container_width=True):
         go("home")
 
 
@@ -325,7 +346,7 @@ def page_members() -> None:
 
     with st.form("add_member_form"):
         st.text_input("Member name", key="member_draft", placeholder="e.g. Sam")
-        st.form_submit_button("＋ Add member", on_click=add_member_callback, use_container_width=True)
+        st.form_submit_button("Add member", on_click=add_member_callback, use_container_width=True)
 
     if st.session_state.member_error:
         st.warning(st.session_state.member_error)
@@ -341,7 +362,7 @@ def page_members() -> None:
         st.info("No members added yet. Add at least one person to continue.")
 
     st.write("")
-    if st.button("Next: find our 5 movies  →", type="primary", use_container_width=True):
+    if st.button("Next: find our 5 movies", type="primary", use_container_width=True):
         if not st.session_state.members:
             st.warning("Add at least one member first.")
             return
@@ -360,7 +381,7 @@ def page_members() -> None:
                     region=prefs["region"],
                     max_runtime=prefs["max_runtime"],
                     cert_ceiling=AUDIENCE_CERT_CEILING[prefs["audience"]],
-                    min_year=prefs["min_year"],
+                    release_decades=prefs.get("release_decades", []),
                     language=prefs["language"],
                 )
             if not matches:
@@ -385,7 +406,7 @@ def page_members() -> None:
         except Exception as exc:
             st.error(f"Something went wrong while finding movies: {exc}")
 
-    if st.button("← Back to preferences", use_container_width=True):
+    if st.button("Back to preferences", use_container_width=True):
         go("preferences")
 
 
@@ -406,13 +427,13 @@ def page_results() -> None:
         st.caption("Search tried: " + " · ".join(st.session_state.relax_notes))
     for i, match in enumerate(matches, start=1):
         render_movie_card(match, i)
-    if st.button("Start voting  →", type="primary", use_container_width=True):
+    if st.button("Start voting", type="primary", use_container_width=True):
         clear_vote_widget_state()
         st.session_state.member_picks = {}
         st.session_state.turn_index = 0
         st.session_state.verdict = None
         go("vote")
-    if st.button("← Back to members", use_container_width=True):
+    if st.button("Back to members", use_container_width=True):
         go("members")
 
 
@@ -445,7 +466,7 @@ def page_vote() -> None:
                 counts[movie_id] += 1
         for match in matches:
             st.caption(f"{match.title}: {counts[match.movie_id]} vote(s)")
-        if st.button("Reveal the verdict  ✨", type="primary", use_container_width=True):
+        if st.button("Reveal the verdict", type="primary", use_container_width=True):
             high_score = max(counts.values()) if counts else 0
             tied = [match.movie_id for match in matches if counts[match.movie_id] == high_score]
             top_rated_id = max(
@@ -473,7 +494,7 @@ def page_vote() -> None:
         format_func=format_movie_option,
         key=f"turn_choice_{turn}",
     )
-    if st.button("Save my pick & pass the phone  →", type="primary", use_container_width=True):
+    if st.button("Save my pick and pass the phone", type="primary", use_container_width=True):
         selected_id = int(selected)
         st.session_state.member_picks[voter] = selected_id
         selected_match = next(m for m in matches if m.movie_id == selected_id)
@@ -481,7 +502,7 @@ def page_vote() -> None:
         st.session_state.turn_index += 1
         st.rerun()
     st.caption("Your pick is private until the group reveals the verdict. No take-backsies after passing the phone.")
-    if st.button("← Back to shortlist", use_container_width=True):
+    if st.button("Back to shortlist", use_container_width=True):
         go("results")
 
 
@@ -549,7 +570,7 @@ def page_verdict() -> None:
             st.write(winner.overview)
 
     if is_tie:
-        if st.button("Randomize the winner  🎲", use_container_width=True):
+        if st.button("Randomize the winner", use_container_width=True):
             new_winner_id = random.choice(tied_ids)
             updated = dict(st.session_state.verdict)
             updated["winner_id"] = new_winner_id
@@ -557,7 +578,7 @@ def page_verdict() -> None:
             st.session_state.verdict = updated
             st.session_state.random_animation = True
             st.rerun()
-    if st.button("Start another movie night  ↺", type="primary", use_container_width=True):
+    if st.button("Start another movie night", type="primary", use_container_width=True):
         reset_everything()
 
     st.caption("Movie information and ratings supplied by TMDB.")
@@ -569,37 +590,112 @@ def inject_style() -> None:
         <style>
         :root { color-scheme: dark; --primary-color: #ff8a35; }
         html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-          background-color: #101114 !important; color: #f4f4f5;
+          background-color: #101114 !important; color: #f4f4f5 !important;
         }
         html, body, [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] * {
           font-family: "Century Gothic", "CenturyGothic", AppleGothic, sans-serif !important;
         }
+        /* Set readable foregrounds on every common Streamlit text surface. */
+        .stApp, .stApp p, .stApp li, .stApp label, .stApp legend,
+        .stApp [data-testid="stWidgetLabel"], .stApp [data-testid="stWidgetLabel"] p,
+        .stApp [data-testid="stMarkdownContainer"], .stApp [data-testid="stMarkdownContainer"] p,
+        .stApp [data-testid="stCaptionContainer"], .stApp [data-testid="stText"],
+        .stApp [data-testid="stRadio"] label, .stApp [data-testid="stCheckbox"] label,
+        .stApp [data-testid="stExpander"] summary {
+          color: #f0f0f3;
+        }
+        .stApp [data-testid="stCaptionContainer"] { color: #bcbcc5 !important; }
+        .stApp [data-testid="stCaptionContainer"] p { color: #bcbcc5 !important; }
+        .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5 { color: #fafafa !important; }
         [data-testid="stMetric"] {
           background: #1b1c22; border: 1px solid #34343a; border-radius: 14px;
           padding: .75rem .8rem; min-height: 100px;
         }
-        [data-testid="stMetricLabel"] { color: #c7c7cc !important; }
+        [data-testid="stMetricLabel"] { color: #d4d4da !important; }
         [data-testid="stMetricValue"] { color: #ff8a35 !important; }
         [data-testid="stSidebar"], [data-testid="collapsedControl"] { display: none !important; }
         #MainMenu, footer { visibility: hidden; }
         .block-container { max-width: 760px; padding-top: 1.3rem; padding-bottom: 3rem; }
         h1, h2, h3 { letter-spacing: -0.035em; }
         h1 { line-height: 1.08; }
-        .hero-kicker, .step-label, .winner-label { color: #ff8a35; font-weight: 800; letter-spacing: .14em; font-size: .72rem; }
+        .hero-kicker, .step-label, .winner-label { color: #ff8a35 !important; font-weight: 800; letter-spacing: .14em; font-size: .72rem; }
         .hero-kicker { margin-bottom: .45rem; }
         .hero-panel { display:flex; align-items:center; gap:1rem; background:linear-gradient(120deg,#2a201a,#201c1a); border:1px solid #54321e; padding:1rem 1.15rem; border-radius:18px; margin:.8rem 0 1.1rem; }
         .hero-number { color:#ff8a35; font-size:3rem; line-height:1; font-weight:900; }
-        .hero-panel span { color:#b9b8bd; font-size:.9rem; }
+        .hero-panel span { color:#d0cfd4; font-size:.9rem; }
         .voter-card { padding:1rem 1.1rem; margin:.8rem 0 1rem; border:1px solid #54321e; border-radius:18px; background:#211d1b; }
         .voter-card span { color:#ff8a35; font-weight:800; font-size:.7rem; letter-spacing:.14em; }
         .voter-card h2 { margin:.2rem 0; }
-        .member-row { padding:.65rem .8rem; border:1px solid #34343a; border-radius:12px; margin-bottom:.45rem; background:#1c1d22; overflow-wrap:anywhere; }
-        .winner-title { font-size:1.55rem; font-weight:900; line-height:1.1; margin:.2rem 0 .5rem; overflow-wrap:anywhere; }
-        div.stButton > button { min-height:2.75rem; border-radius:12px; font-weight:700; transition:transform .12s ease, border-color .12s ease; }
-        div.stButton > button:hover { border-color:#ff8a35; transform:translateY(-1px); }
-        div[data-testid="stFormSubmitButton"] > button { min-height:2.75rem; border-radius:12px; font-weight:800; }
-        div[data-testid="stRadio"] label { border-radius:10px; }
-        div[data-testid="stProgress"] > div > div { background-color:#ff8a35; }
+        .member-row { padding:.65rem .8rem; border:1px solid #34343a; border-radius:12px; margin-bottom:.45rem; background:#1c1d22; color:#f4f4f5; overflow-wrap:anywhere; }
+        .winner-title { color:#fff; font-size:1.55rem; font-weight:900; line-height:1.1; margin:.2rem 0 .5rem; overflow-wrap:anywhere; }
+
+        /* Selectboxes and multiselect dropdowns: dark surface, light text, orange focus. */
+        .stApp [data-baseweb="select"] > div {
+          background-color: #22242b !important; color: #f4f4f5 !important;
+          border-color: #555761 !important; border-radius: 10px !important;
+        }
+        .stApp [data-baseweb="select"] input,
+        .stApp [data-baseweb="select"] [data-testid="stMarkdownContainer"],
+        .stApp [data-baseweb="select"] span,
+        .stApp [data-baseweb="select"] div { color: #f4f4f5 !important; }
+        .stApp [data-baseweb="select"] svg { fill: #ff8a35 !important; color: #ff8a35 !important; }
+        .stApp [data-baseweb="popover"], .stApp [data-baseweb="menu"],
+        .stApp ul[role="listbox"], .stApp div[role="listbox"] {
+          background-color: #202127 !important; border-color: #4a4c55 !important;
+          color: #f4f4f5 !important;
+        }
+        .stApp [role="option"], .stApp li[role="option"],
+        .stApp [data-baseweb="menu"] li {
+          background-color: #202127 !important; color: #f4f4f5 !important;
+        }
+        .stApp [role="option"]:hover, .stApp [role="option"][aria-selected="true"],
+        .stApp [data-baseweb="menu"] li:hover {
+          background-color: #49301f !important; color: #ffffff !important;
+        }
+        .stApp [data-baseweb="tag"] { background-color: #4a2d1c !important; color: #ffffff !important; }
+        .stApp [data-baseweb="tag"] *, .stApp [data-baseweb="tag"] svg { color: #ffffff !important; fill: #ffffff !important; }
+
+        /* Text-entry widgets are dark too. */
+        .stApp [data-baseweb="input"] > div, .stApp [data-baseweb="textarea"] > div,
+        .stApp input, .stApp textarea {
+          background-color: #22242b !important; color: #f4f4f5 !important;
+          border-color: #555761 !important; caret-color: #ff8a35 !important;
+        }
+        .stApp input::placeholder, .stApp textarea::placeholder { color: #b4b5be !important; opacity: 1; }
+        .stApp [data-baseweb="input"] svg { fill: #ff8a35 !important; }
+
+        /* Neutral actions are charcoal; primary actions are orange with near-black text. */
+        .stApp div.stButton > button,
+        .stApp div[data-testid="stFormSubmitButton"] > button {
+          min-height: 2.75rem; border-radius: 12px; font-weight: 700;
+          background: #25272e !important; color: #f7f7f9 !important;
+          border: 1px solid #50525c !important;
+          transition: transform .12s ease, border-color .12s ease, background-color .12s ease;
+        }
+        .stApp div.stButton > button *,
+        .stApp div[data-testid="stFormSubmitButton"] > button * { color: #f7f7f9 !important; }
+        .stApp div.stButton > button:hover,
+        .stApp div[data-testid="stFormSubmitButton"] > button:hover {
+          border-color: #ff8a35 !important; background: #33343c !important;
+          color: #ffffff !important; transform: translateY(-1px);
+        }
+        .stApp div.stButton > button[kind="primary"],
+        .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"],
+        .stApp button[data-testid="baseButton-primary"] {
+          background: #ff8a35 !important; border-color: #ff8a35 !important;
+          color: #17120f !important; font-weight: 800 !important;
+        }
+        .stApp div.stButton > button[kind="primary"] *,
+        .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"] *,
+        .stApp button[data-testid="baseButton-primary"] * { color: #17120f !important; }
+        .stApp div.stButton > button[kind="primary"]:hover,
+        .stApp div[data-testid="stFormSubmitButton"] > button[kind="primary"]:hover,
+        .stApp button[data-testid="baseButton-primary"]:hover {
+          background: #ffa05b !important; color: #17120f !important;
+        }
+        .stApp div[data-testid="stRadio"] label { border-radius: 10px; color: #f4f4f5 !important; }
+        .stApp div[data-testid="stProgress"] > div > div { background-color:#ff8a35; }
+        .stApp [data-testid="stAlert"] { color: #f4f4f5 !important; }
         @media (max-width: 640px) {
           .block-container { padding-left:1rem; padding-right:1rem; padding-top:1rem; }
           .hero-number { font-size:2.6rem; }

@@ -1,16 +1,16 @@
-# Couch Verdict
+# Couch Verdict V.4.0
 
 A simple, mobile-first movie-night picker with a dark navy and orange theme. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
 
 ## How it works
 
-1. Choose your streaming region, services, audience, genres, runtime, year, and language.
+1. Choose your streaming region, services, audience, genres, maximum movie length (kept as a strict limit), selected release decades, and language.
 2. Add the names of everyone voting.
 3. Review the movie shortlist found using TMDB.
 4. Each person gets a preselected first movie and can tap another option, then passes the phone to the next person.
 5. The movie with the most picks wins. If there is a tie, the app recommends the highest-rated tied movie on TMDB; the group can randomize the winner with an animation.
 
-There is no account or sidebar. The home page shows fictional, continuously updating movie-indecision counters. These are deliberately simulated, not analytics: the formula assumes 480 imaginary groups per day each spend 18 minutes deciding (144 aggregate hours per day). They refresh every 3 seconds.
+There is no account or sidebar. The home page shows fictional, continuously updating movie-indecision counters. These are simulated estimates, not analytics, and refresh every 3 seconds.
 
 ## Branding and theme
 
