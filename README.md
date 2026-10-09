@@ -1,16 +1,22 @@
-# 🍿 Couch Verdict
+# Couch Verdict
 
-A simple, mobile-first movie-night picker. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
+A simple, mobile-first movie-night picker with a dark navy and orange theme. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
 
 ## How it works
 
 1. Choose your streaming region, services, audience, genres, runtime, year, and language.
 2. Add the names of everyone voting.
 3. Review the movie shortlist found using TMDB.
-4. Each person picks one movie on their turn and passes the phone to the next person.
+4. Each person gets a preselected first movie and can tap another option, then passes the phone to the next person.
 5. The movie with the most picks wins. If there is a tie, the app recommends the highest-rated tied movie on TMDB; the group can randomize the winner with an animation.
 
-There is no account or sidebar. The app no longer displays the deployment-instance activity message.
+There is no account or sidebar. The home page shows fictional, continuously updating movie-indecision counters. These are deliberately simulated, not analytics: the formula assumes 480 imaginary groups per day each spend 18 minutes deciding (144 aggregate hours per day). They refresh every 3 seconds.
+
+## Branding and theme
+
+- `.streamlit/config.toml` explicitly sets the dark palette and orange accent.
+- The logo in `assets/couch-verdict-logo.png` is used in the home page, poster fallbacks, and browser tab icon.
+- CSS requests Century Gothic first, followed by platform-specific fallbacks. Century Gothic must be installed on the viewer's device for the exact typeface to render; otherwise the browser uses a fallback.
 
 ## Run locally
 
@@ -39,6 +45,8 @@ For Streamlit Community Cloud, paste the same TOML block into the app's **Settin
 couch-verdict/
 ├── app.py
 ├── requirements.txt
+├── assets/
+│   └── couch-verdict-logo.png
 ├── services/
 │   ├── __init__.py
 │   ├── db.py

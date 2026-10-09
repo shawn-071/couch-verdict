@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import random
+from datetime import datetime, timedelta
+from pathlib import Path
+
 import streamlit as st
 
 from services import db, recommender, tmdb_client
 from services.recommender import AUDIENCE_CERT_CEILING, MovieMatch
 
+APP_DIR = Path(__file__).resolve().parent
+LOGO_PATH = APP_DIR / "assets" / "couch-verdict-logo.png"
+
 st.set_page_config(
     page_title="Couch Verdict",
-    page_icon="🍿",
+    page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "🎬",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
@@ -134,7 +140,7 @@ def render_movie_card(match: MovieMatch, index: int) -> None:
             if poster:
                 st.image(poster, width=120)
             else:
-                st.markdown("<div class='poster-placeholder'>🍿</div>", unsafe_allow_html=True)
+                st.image(str(LOGO_PATH), width=120)
         with right:
             st.markdown(f"**{index}. {match.title}**")
             details = [match.year or "Year unknown", match.runtime_text]
@@ -155,12 +161,64 @@ def render_movie_card(match: MovieMatch, index: int) -> None:
         st.divider()
 
 
+# The figures below are intentionally fictional. They are a small brand flourish,
+# not analytics collected from app users. The formula assumes 480 groups per day
+# each spend 18 minutes deciding, or 144 aggregate person-hours per day.
+MODEL_GROUPS_PER_DAY = 480
+MODEL_MINUTES_PER_GROUP = 18
+MODEL_HOURS_PER_DAY = MODEL_GROUPS_PER_DAY * MODEL_MINUTES_PER_GROUP / 60
+MODEL_TRACKING_START = (2025, 1, 1)
+
+
+def estimate_hours_since(start: datetime, now: datetime) -> float:
+    """Calculate the playful simulated aggregate counter for a period."""
+    elapsed_seconds = max(0.0, (now - start).total_seconds())
+    return elapsed_seconds / 86400 * MODEL_HOURS_PER_DAY
+
+
+@st.fragment(run_every="3s")
+def render_waste_stats() -> None:
+    now = datetime.now().astimezone()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=today_start.weekday())
+    month_start = today_start.replace(day=1)
+    year_start = today_start.replace(month=1, day=1)
+    all_time_start = now.replace(
+        year=MODEL_TRACKING_START[0], month=MODEL_TRACKING_START[1],
+        day=MODEL_TRACKING_START[2], hour=0, minute=0, second=0, microsecond=0,
+    )
+
+    stats = [
+        ("Today", estimate_hours_since(today_start, now)),
+        ("This week", estimate_hours_since(week_start, now)),
+        ("This month", estimate_hours_since(month_start, now)),
+        ("This year", estimate_hours_since(year_start, now)),
+        ("All time", estimate_hours_since(all_time_start, now)),
+    ]
+    st.markdown("### The global movie-decision tax")
+    st.caption(
+        "A playful simulated estimate, not real analytics. Formula: 480 imaginary groups/day × "
+        "18 minutes spent deciding = 144 aggregate hours/day. All-time starts 1 Jan 2025. Counters refresh every 3 seconds."
+    )
+    for columns, items in ((st.columns(2), stats[:2]), (st.columns(2), stats[2:4])):
+        for column, (label, hours) in zip(columns, items):
+            with column:
+                st.metric(label, f"{hours:,.2f} h")
+    left, center, right = st.columns([1, 2, 1])
+    with center:
+        st.metric(stats[4][0], f"{stats[4][1]:,.2f} h")
+
+
 def page_home() -> None:
     st.markdown("<div class='hero-kicker'>MOVIE NIGHT, SORTED</div>", unsafe_allow_html=True)
-    st.title("🍿 Couch Verdict")
+    logo_col, title_col = st.columns([1, 3.8], vertical_alignment="center", gap="small")
+    with logo_col:
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), width=88)
+    with title_col:
+        st.title("Couch Verdict")
     st.markdown(
-        "Pick your preferences, add your people, then let the room settle on one movie. "
-        "No accounts, no sidebar, no 40-minute scrolling expedition."
+        "Five contenders. One couch jury. Finally, a decision before the snacks disappear."
     )
     st.markdown(
         "<div class='hero-panel'><div class='hero-number'>5</div>"
@@ -168,6 +226,7 @@ def page_home() -> None:
         "<span>One shared shortlist. One final verdict.</span></div></div>",
         unsafe_allow_html=True,
     )
+    render_waste_stats()
     st.write("")
     if st.button("Start a movie night  →", type="primary", use_container_width=True):
         go("preferences")
@@ -357,13 +416,11 @@ def page_results() -> None:
         go("members")
 
 
-def format_movie_option(movie_id: int | str) -> str:
-    if movie_id == "":
-        return "Choose a movie…"
+def format_movie_option(movie_id: int) -> str:
     for match in st.session_state.results:
         if match.movie_id == movie_id:
             return f"{match.title} ({match.year or '—'}) · ⭐ {match.vote_average:.1f}/10"
-    return "Choose a movie…"
+    return "Movie"
 
 
 def page_vote() -> None:
@@ -408,18 +465,15 @@ def page_vote() -> None:
     voter = members[turn]
     st.progress(turn / len(members), text=f"Voter {turn + 1} of {len(members)}")
     st.markdown(f"<div class='voter-card'><span>NOW VOTING</span><h2>{voter}</h2>Pick one movie below.</div>", unsafe_allow_html=True)
-    options: list[int | str] = [""] + [match.movie_id for match in matches]
+    options: list[int] = [match.movie_id for match in matches]
     selected = st.radio(
         "Which movie gets your vote?",
         options,
-        index=0,
+        index=0,  # First movie is selected unless the voter taps a different option.
         format_func=format_movie_option,
         key=f"turn_choice_{turn}",
     )
     if st.button("Save my pick & pass the phone  →", type="primary", use_container_width=True):
-        if selected == "":
-            st.warning("Choose a movie before passing the phone.")
-            return
         selected_id = int(selected)
         st.session_state.member_picks[voter] = selected_id
         selected_match = next(m for m in matches if m.movie_id == selected_id)
@@ -468,7 +522,7 @@ def page_verdict() -> None:
             ) else ""
             st.write(f"• {match.title} · ⭐ {match.vote_average:.1f}/10 · {verdict['counts'][match.movie_id]} vote(s){marker}")
     else:
-        st.title("🍿 Movie night has a winner")
+        st.title("Movie night has a winner")
         st.write(f"{winner.title} received the most votes, with {verdict['top_score']} vote(s).")
 
     left, right = st.columns([0.9, 2.1], gap="medium")
@@ -477,7 +531,7 @@ def page_verdict() -> None:
         if poster:
             st.image(poster, width=150)
         else:
-            st.markdown("<div class='poster-placeholder'>🍿</div>", unsafe_allow_html=True)
+            st.image(str(LOGO_PATH), width=120)
     with right:
         st.markdown(f"<div class='winner-label'>TONIGHT'S PICK</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='winner-title'>{winner.title}</div>", unsafe_allow_html=True)
@@ -513,7 +567,19 @@ def inject_style() -> None:
     st.markdown(
         """
         <style>
-        :root { color-scheme: dark; }
+        :root { color-scheme: dark; --primary-color: #ff8a35; }
+        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+          background-color: #101114 !important; color: #f4f4f5;
+        }
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] * {
+          font-family: "Century Gothic", "CenturyGothic", AppleGothic, sans-serif !important;
+        }
+        [data-testid="stMetric"] {
+          background: #1b1c22; border: 1px solid #34343a; border-radius: 14px;
+          padding: .75rem .8rem; min-height: 100px;
+        }
+        [data-testid="stMetricLabel"] { color: #c7c7cc !important; }
+        [data-testid="stMetricValue"] { color: #ff8a35 !important; }
         [data-testid="stSidebar"], [data-testid="collapsedControl"] { display: none !important; }
         #MainMenu, footer { visibility: hidden; }
         .block-container { max-width: 760px; padding-top: 1.3rem; padding-bottom: 3rem; }
@@ -528,7 +594,6 @@ def inject_style() -> None:
         .voter-card span { color:#ff8a35; font-weight:800; font-size:.7rem; letter-spacing:.14em; }
         .voter-card h2 { margin:.2rem 0; }
         .member-row { padding:.65rem .8rem; border:1px solid #34343a; border-radius:12px; margin-bottom:.45rem; background:#1c1d22; overflow-wrap:anywhere; }
-        .poster-placeholder { height:150px; width:100px; display:flex; justify-content:center; align-items:center; border-radius:12px; background:#23242b; font-size:2rem; }
         .winner-title { font-size:1.55rem; font-weight:900; line-height:1.1; margin:.2rem 0 .5rem; overflow-wrap:anywhere; }
         div.stButton > button { min-height:2.75rem; border-radius:12px; font-weight:700; transition:transform .12s ease, border-color .12s ease; }
         div.stButton > button:hover { border-color:#ff8a35; transform:translateY(-1px); }
@@ -539,6 +604,7 @@ def inject_style() -> None:
           .block-container { padding-left:1rem; padding-right:1rem; padding-top:1rem; }
           .hero-number { font-size:2.6rem; }
           .winner-title { font-size:1.35rem; }
+          [data-testid="stMetric"] { padding:.65rem; min-height:92px; }
         }
         </style>
         """,
