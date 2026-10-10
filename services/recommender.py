@@ -38,6 +38,7 @@ def find_five_movies(
     region: str = "US",
     max_runtime: int | None = None,
     allowed_certifications: list[str] | None = None,
+    rating_region: str | None = None,
     min_year: int | None = None,
     language: str | None = None,
     release_decades: list[int] | None = None,
@@ -45,6 +46,8 @@ def find_five_movies(
     """Return up to five matches while keeping time and rating filters strict.
 
     ``release_decades`` contains decade start years (for example ``[1980, 2020]``).
+    ``rating_region`` can differ from ``region`` when the UI uses US ratings as
+    a fallback for a streaming region with no TMDB certification catalogue.
     Genre and provider preferences may be broadened during fallback searches, but
     a selected runtime ceiling, release decade, language, and regional certification
     must remain satisfied. Specific rating selections require a known certificate
@@ -143,7 +146,7 @@ def find_five_movies(
                     continue
             # Certifications differ by country. When specific ratings were chosen,
             # require a known certification for this region and an exact selection match.
-            cert = tmdb_client.certification_for_region(details, region)
+            cert = tmdb_client.certification_for_region(details, rating_region or region)
             if allowed_certifications and cert not in allowed_certifications:
                 continue
             seen.add(movie_id)

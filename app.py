@@ -309,8 +309,19 @@ def page_preferences() -> None:
         st.session_state.setdefault("age_rating_picker", ["Any rating"])
 
         country_certifications = certification_map.get(region_code, [])
-        rating_codes = [item["certification"] for item in country_certifications]
+        # If TMDB has no certification catalogue for the streaming region, use
+        # US ratings as a fallback while continuing to search streaming providers
+        # in the user's actual region.
+        rating_region_code = region_code if country_certifications else "US"
+        rating_certifications = (
+            country_certifications if country_certifications
+            else certification_map.get("US", [])
+        )
+        rating_codes = [item["certification"] for item in rating_certifications]
         rating_choices = ["Any rating", *rating_codes]
+        rating_system_label = (
+            region_label if country_certifications else "United States (fallback)"
+        )
         language_map = {
             f'{item["name"]} ({item["code"]})': item["code"]
             for item in languages
@@ -343,11 +354,14 @@ def page_preferences() -> None:
                 rating_choices,
                 key="age_rating_picker",
                 placeholder="Choose Any rating or one or more ratings",
-                help=f"Ratings use the certification system TMDB lists for {region_label}.",
+                help=(
+                    f"Ratings use {rating_system_label}. "
+                    "For regions without their own TMDB certification list, US ratings are used."
+                ),
                 select_all=False,
             )
-            if len(rating_choices) == 1:
-                st.caption("TMDB does not publish a separate movie-certification list for this region. Only Any rating is available.")
+            if not country_certifications:
+                st.caption("This region has no TMDB rating list. US ratings are used as a fallback.")
 
             genre_names = sorted(genres.values())
             chosen_genres = st.multiselect(
@@ -399,6 +413,7 @@ def page_preferences() -> None:
             "region_label": region_label,
             "services": chosen_services,
             "allowed_certifications": allowed_certifications,
+            "rating_region": rating_region_code,
             "rating_labels": rating_selection,
             "genres": chosen_genres,
             "max_runtime": RUNTIME_OPTIONS[runtime_label],
@@ -461,6 +476,7 @@ def page_members() -> None:
                         region=prefs["region"],
                         max_runtime=prefs["max_runtime"],
                         allowed_certifications=prefs.get("allowed_certifications"),
+                        rating_region=prefs.get("rating_region", prefs["region"]),
                         release_decades=prefs.get("release_decades", []),
                         language=prefs["language"],
                     )

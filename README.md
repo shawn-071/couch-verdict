@@ -86,3 +86,8 @@ The Release decades multiselect is placed directly beneath the genre selector, i
 ### V.5.0 region, language, and rating update
 
 The preferences page retrieves supported regions, language codes, and movie certification definitions from TMDB's configuration endpoints. Age-rating filtering is applied against each movie's release-date certification for the chosen region. If specific ratings are selected, movies with missing or non-matching regional certifications are excluded; selecting “Any rating” leaves that filter unrestricted.
+
+
+## Age-rating fallback (V.5.1)
+
+When TMDB has no certification catalogue for the selected streaming region, Couch Verdict uses US movie certifications as the age-rating fallback. Streaming availability remains tied to the selected region. If specific ratings are selected, the app checks each movie's US certification; movies without a known US certification are excluded. This fallback is not a claim that US ratings are the local country's official ratings.
