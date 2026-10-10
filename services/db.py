@@ -1,20 +1,15 @@
 """SQLite storage for Couch Verdict.
 
-Note: Streamlit Community Cloud containers are ephemeral — the database is
-wiped when the app restarts. It powers live activity statistics for the
-running instance; it is not permanent global history.
+Streamlit Community Cloud containers are ephemeral. The database powers
+activity statistics and voting records for the running instance; it is not
+permanent global history.
 """
-
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import secrets
 import sqlite3
 from contextlib import contextmanager
-
-import streamlit as st
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "couch_verdict.db")
 
@@ -45,8 +40,7 @@ CREATE TABLE IF NOT EXISTS votes (
     title TEXT NOT NULL,
     choice TEXT NOT NULL,
     voter TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(night_id, movie_id, voter)
+    created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS saved_movies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,43 +67,9 @@ def _conn():
         connection.close()
 
 
-def _migrate(connection) -> None:
-    """Non-destructive upgrades for databases created by older versions."""
-    cols = connection.execute("PRAGMA table_info(votes)").fetchall()
-    if not cols:
-        return
-    has_unique = False
-    for row in connection.execute("PRAGMA index_list(votes)").fetchall():
-        if row["unique"]:
-            members = connection.execute(
-                f"PRAGMA index_info('{row['name']}')"
-            ).fetchall()
-            if [m["name"] for m in members] == ["night_id", "movie_id", "voter"]:
-                has_unique = True
-    if not has_unique:
-        connection.executescript("""
-            CREATE TABLE votes_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                night_id INTEGER REFERENCES movie_nights(id),
-                movie_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                choice TEXT NOT NULL,
-                voter TEXT NOT NULL,
-                created_at TEXT DEFAULT (datetime('now')),
-                UNIQUE(night_id, movie_id, voter)
-            );
-            INSERT OR IGNORE INTO votes_new
-                (night_id, movie_id, title, choice, voter, created_at)
-            SELECT night_id, movie_id, title, choice, voter, created_at FROM votes;
-            DROP TABLE votes;
-            ALTER TABLE votes_new RENAME TO votes;
-        """)
-
-
 def init_db() -> None:
     with _conn() as connection:
         connection.executescript(_SCHEMA)
-        _migrate(connection)
 
 
 def upsert_user(name: str) -> int:
@@ -119,72 +79,37 @@ def upsert_user(name: str) -> int:
         return row["id"]
 
 
-def _hash_password(password: str, salt: str, iterations: int) -> str:
+def hash_password(name: str, password: str) -> str:
+    """Salted SHA-256 (salt = username), retained for legacy account data."""
     import hashlib
-
-    digest = hashlib.pbkdf2_hmac(
-        "sha256", password.encode(), salt.encode(), iterations
-    )
-    return digest.hex()
+    return hashlib.sha256(f"couch::{name}::{password}".encode()).hexdigest()
 
 
 def register_user(name: str, password: str) -> tuple[int | None, str]:
-    """Create an account with a random salt and PBKDF2 hash."""
     if not name.strip() or not password:
         return None, "Enter a name and a password."
-    salt = secrets.token_hex(16)
-    iterations = 240_000
-    pw_hash = f"pbkdf2${iterations}${salt}${_hash_password(password, salt, iterations)}"
     with _conn() as connection:
-        existing = connection.execute(
-            "SELECT id FROM users WHERE name = ?", (name.strip(),)
-        ).fetchone()
+        existing = connection.execute("SELECT id FROM users WHERE name = ?", (name.strip(),)).fetchone()
         if existing:
             return None, "That name is taken — try signing in instead."
         cursor = connection.execute(
             "INSERT INTO users (name, password_hash) VALUES (?, ?)",
-            (name.strip(), pw_hash),
+            (name.strip(), hash_password(name.strip(), password)),
         )
         return cursor.lastrowid, ""
 
 
 def login_user(name: str, password: str) -> tuple[int | None, str]:
-    """Verify credentials. Legacy hashes are upgraded to PBKDF2 on success."""
     with _conn() as connection:
-        row = connection.execute(
-            "SELECT id, password_hash FROM users WHERE name = ?", (name.strip(),)
-        ).fetchone()
+        row = connection.execute("SELECT id, password_hash FROM users WHERE name = ?", (name.strip(),)).fetchone()
     if not row:
         return None, "No account with that name — create one first."
-    stored = row["password_hash"] or ""
-    if stored.startswith("pbkdf2$"):
-        try:
-            scheme, iterations, salt, digest = stored.split("$", 3)
-            ok = secrets.compare_digest(
-                digest, _hash_password(password, salt, int(iterations))
-            )
-        except (ValueError, TypeError):
-            ok = False
-        if not ok:
-            return None, "Wrong password."
-        return row["id"], ""
-    # Legacy salted SHA-256 from the earlier version: verify, then upgrade.
-    legacy = hashlib.sha256(
-        f"couch::{name.strip()}::{password}".encode()
-    ).hexdigest()
-    if not secrets.compare_digest(stored, legacy):
+    if row["password_hash"] != hash_password(name.strip(), password):
         return None, "Wrong password."
-    iterations = 240_000
-    salt = secrets.token_hex(16)
-    new_hash = f"pbkdf2${iterations}${salt}${_hash_password(password, salt, iterations)}"
-    with _conn() as connection:
-        connection.execute(
-            "UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, row["id"])
-        )
     return row["id"], ""
 
 
-def create_movie_night(user_id: int, preferences: dict) -> int:
+def create_movie_night(user_id: int | None, preferences: dict) -> int:
     with _conn() as connection:
         cursor = connection.execute(
             "INSERT INTO movie_nights (user_id, preferences) VALUES (?, ?)",
@@ -202,15 +127,9 @@ def record_recommendations(night_id: int, movies: list) -> None:
 
 
 def record_vote(night_id: int, movie_id: int, title: str, choice: str, voter: str) -> None:
-    """One ballot per (night, movie, voter); changing a vote replaces it."""
     with _conn() as connection:
         connection.execute(
-            """
-            INSERT INTO votes (night_id, movie_id, title, choice, voter)
-            VALUES (?,?,?,?,?)
-            ON CONFLICT(night_id, movie_id, voter)
-            DO UPDATE SET choice = excluded.choice
-            """,
+            "INSERT INTO votes (night_id, movie_id, title, choice, voter) VALUES (?,?,?,?,?)",
             (night_id, movie_id, title, choice, voter),
         )
 
@@ -248,7 +167,6 @@ def get_stats() -> dict:
         def count(query, params=()):
             row = connection.execute(query, params).fetchone()
             return row[0] if row else 0
-
         return {
             "movie_nights": count("SELECT COUNT(*) FROM movie_nights"),
             "recommendations": count("SELECT COUNT(*) FROM recommendations"),
