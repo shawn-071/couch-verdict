@@ -1,10 +1,19 @@
-# Couch Verdict V.4.0
+# Couch Verdict V.4.2
 
 A simple, mobile-first movie-night picker with a dark navy and orange theme. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
 
+
+## V.4.2 changes
+
+- The preferences card now visibly encloses the streaming region and all filters, including Release decades.
+- The Release decades multiselect disables Streamlit's bulk “Select all” action while keeping “Any decade”.
+- A clickable logo button at the top-left returns to Home on every step. The current page is mirrored in the `?page=` URL parameter so browser Back/Forward can restore prior steps.
+- The no-movies/error state retains its Back to preferences button.
+- All brand-image usages and the browser tab icon use the newest supplied logo.
+
 ## How it works
 
-1. Choose your streaming region, services, audience, genres, maximum movie length (kept as a strict limit), selected release decades, and language.
+1. Choose your streaming region, services, audience, genres, maximum movie length (kept as a strict limit), release decades, and language. You must explicitly select “Any decade” or at least one decade; “Any decade” cannot be combined with specific decades.
 2. Add the names of everyone voting.
 3. Review the movie shortlist found using TMDB.
 4. Each person gets a preselected first movie and can tap another option, then passes the phone to the next person.
@@ -15,7 +24,7 @@ There is no account or sidebar. The home page shows fictional, continuously upda
 ## Branding and theme
 
 - `.streamlit/config.toml` explicitly sets the dark palette and orange accent.
-- The logo in `assets/couch-verdict-logo.png` is used in the home page, poster fallbacks, and browser tab icon.
+- The latest logo in `assets/couch-verdict-logo.png` is used in the top-left home button, home page, poster fallbacks, and browser tab icon.
 - CSS requests Century Gothic first, followed by platform-specific fallbacks. Century Gothic must be installed on the viewer's device for the exact typeface to render; otherwise the browser uses a fallback.
 
 ## Run locally
@@ -60,3 +69,7 @@ couch-verdict/
 Movie information, ratings, posters, and streaming availability come from [TMDB](https://www.themoviedb.org). Streaming availability depends on the selected region. US age ratings are used by the recommendation engine.
 
 The local SQLite database is not permanent storage on Streamlit Community Cloud; its contents may reset when the app container restarts.
+
+## Updating an existing deployment
+
+Replace the matching files in the repository root with the files from the ZIP, including both `app.py` and the entire `services/` folder. These files are version-coupled: `app.py` calls `find_five_movies(..., release_decades=...)`, so leaving an older `services/recommender.py` in place causes an unexpected-keyword error. Do not upload the ZIP itself as a single file, and do not nest the contents under an extra folder.

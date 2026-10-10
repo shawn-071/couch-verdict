@@ -1,4 +1,4 @@
-"""Couch Verdict V.4.0: a simple, mobile-first group movie picker."""
+"""Couch Verdict V.4.2: a simple, mobile-first group movie picker."""
 from __future__ import annotations
 
 import random
@@ -73,13 +73,31 @@ def init_session() -> None:
         "verdict": None,
         "random_animation": False,
         "search_error": None,
+        "member_search_error": None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
 
+    # Keep the current view mirrored in the URL so browser Back/Forward can
+    # restore earlier app steps instead of leaving the app stuck on one view.
+    valid_pages = {"home", "preferences", "members", "results", "vote", "verdict"}
+    try:
+        url_page = st.query_params.get("page")
+        if url_page in valid_pages:
+            st.session_state.page = url_page
+        elif not url_page:
+            st.session_state.page = "home"
+    except Exception:
+        # Session-state navigation remains available on older Streamlit versions.
+        pass
+
 
 def go(page: str) -> None:
     st.session_state.page = page
+    try:
+        st.query_params["page"] = page
+    except Exception:
+        pass
     st.rerun()
 
 
@@ -102,6 +120,7 @@ def reset_everything() -> None:
     st.session_state.verdict = None
     st.session_state.random_animation = False
     st.session_state.search_error = None
+    st.session_state.member_search_error = None
     go("home")
 
 
@@ -125,17 +144,20 @@ def remove_member_callback(index: int) -> None:
     st.session_state.member_error = None
 
 
-def release_decade_changed() -> None:
-    current = list(st.session_state.get("release_decade_picker", ["Any decade"]))
-    previous = list(st.session_state.get("_last_release_decade_picker", ["Any decade"]))
-    has_any_now = "Any decade" in current
-    has_any_before = "Any decade" in previous
-    has_specific = any(value != "Any decade" for value in current)
-    if has_any_now and has_specific:
-        # Adding a specific decade removes the default; adding Any decade clears specifics.
-        current = ["Any decade"] if not has_any_before else [v for v in current if v != "Any decade"]
-    st.session_state["release_decade_picker"] = current
-    st.session_state["_last_release_decade_picker"] = list(current)
+def render_top_nav() -> None:
+    """Show a clickable brand logo at the top-left of every app screen."""
+    logo_col, brand_col, _spacer = st.columns([1.0, 3.0, 6.0], vertical_alignment="center", gap="small")
+    with logo_col:
+        if st.image_button(
+            "Couch Verdict home",
+            str(LOGO_PATH),
+            help="Return to the Couch Verdict home page",
+            key="global_logo_home_button",
+            width=64,
+        ):
+            go("home")
+    with brand_col:
+        st.markdown("<div class='brand-wordmark'>COUCH VERDICT</div>", unsafe_allow_html=True)
 
 
 def get_genre_label(ids: list[int]) -> str:
@@ -248,69 +270,90 @@ def page_preferences() -> None:
     st.title("Set the vibe")
     st.write("Choose the services and limits everyone can live with.")
 
-    region_label = st.selectbox(
-        "Where do you stream?", list(REGIONS.keys()),
-        index=list(REGIONS.keys()).index("Qatar"),
-    )
-    try:
-        with st.spinner("Loading streaming services and genres…"):
-            providers = tmdb_client.get_providers(REGIONS[region_label])
-            genres = tmdb_client.get_genres()
-    except tmdb_client.TMDBConfigError as exc:
-        st.error(str(exc))
-        st.info("The app owner needs to add a TMDB API key in Streamlit app settings → Secrets.")
-        return
-    except tmdb_client.TMDBApiError as exc:
-        st.error(f"TMDB could not load the preferences: {exc}")
-        st.info("Check your connection, then refresh the app.")
-        return
+    # A single visibly bordered card now contains Region AND every other filter,
+    # so Release decades cannot drift outside the preferences box.
+    with st.container(border=True, key="preferences-card"):
+        region_label = st.selectbox(
+            "Where do you stream?", list(REGIONS.keys()),
+            index=list(REGIONS.keys()).index("Qatar"),
+            key="streaming_region",
+        )
+        try:
+            with st.spinner("Loading streaming services and genres…"):
+                providers = tmdb_client.get_providers(REGIONS[region_label])
+                genres = tmdb_client.get_genres()
+        except tmdb_client.TMDBConfigError as exc:
+            st.error(str(exc))
+            st.info("The app owner needs to add a TMDB API key in Streamlit app settings → Secrets.")
+            if st.button("Back home", use_container_width=True):
+                go("home")
+            return
+        except tmdb_client.TMDBApiError as exc:
+            st.error(f"TMDB could not load the preferences: {exc}")
+            st.info("Check your connection, then refresh the app.")
+            if st.button("Back home", use_container_width=True):
+                go("home")
+            return
 
-    st.session_state.setdefault("release_decade_picker", ["Any decade"])
-    st.session_state.setdefault("_last_release_decade_picker", ["Any decade"])
-    decade_choices = ["Any decade", *DECADE_OPTIONS.keys()]
-    decade_selection = st.multiselect(
-        "Release decades",
-        decade_choices,
-        key="release_decade_picker",
-        on_change=release_decade_changed,
-        help="Choose one or more decades. Any decade includes every release year.",
-    )
-    chosen_decades = [value for value in decade_selection if value != "Any decade"]
+        # Reset once for the new release so stale widget values from a previous release
+        # cannot make a previously unsubmitted decade choice appear valid.
+        if st.session_state.get("_release_decade_picker_version") != "4.2":
+            st.session_state["release_decade_picker"] = []
+            st.session_state["_release_decade_picker_version"] = "4.2"
+        st.session_state.setdefault("release_decade_picker", [])
 
-    with st.form("preferences_form"):
-        popular = [name for name in [
-            "Netflix", "Prime Video", "Disney Plus", "Apple TV+", "Apple TV",
-            "Max", "Hulu", "Paramount+",
-        ] if name in providers]
-        services_available = popular + sorted(name for name in providers if name not in popular)
-        chosen_services = st.multiselect(
-            "Which streaming services do you have?",
-            services_available,
-            default=popular[:4],
-            max_selections=8,
-            placeholder="Choose up to 8 services",
-        )
-        audience_label = st.radio(
-            "Who's watching?", list(AUDIENCES.keys()), index=1, horizontal=True
-        )
-        ceiling = AUDIENCE_CERT_CEILING[AUDIENCES[audience_label]]
-        if ceiling:
-            st.caption(f"Age-rating ceiling: {ceiling} or below. Unknown ratings are not treated as safe.")
-        else:
-            st.caption("No age-rating ceiling selected.")
-        genre_names = sorted(genres.values())
-        chosen_genres = st.multiselect(
-            "Pick up to 3 genres", genre_names, max_selections=3,
-            placeholder="Comedy, animation, sci-fi…",
-        )
-        c1, c2 = st.columns(2)
-        with c1:
-            runtime_label = st.selectbox("Maximum movie length", list(RUNTIME_OPTIONS.keys()))
-        with c2:
-            lang_label = st.selectbox("Movie language", list(LANGUAGE_OPTIONS.keys()))
-        submitted = st.form_submit_button("Next: add members", type="primary", use_container_width=True)
+        with st.form("preferences_form"):
+            decade_choices = ["Any decade", *DECADE_OPTIONS.keys()]
+            decade_selection = st.multiselect(
+                "Release decades",
+                decade_choices,
+                key="release_decade_picker",
+                placeholder="Choose Any decade or specific decades",
+                help="Choose Any decade by itself, or select one or more specific decades.",
+                select_all=False,
+            )
+            popular = [name for name in [
+                "Netflix", "Prime Video", "Disney Plus", "Apple TV+", "Apple TV",
+                "Max", "Hulu", "Paramount+",
+            ] if name in providers]
+            services_available = popular + sorted(name for name in providers if name not in popular)
+            chosen_services = st.multiselect(
+                "Which streaming services do you have?",
+                services_available,
+                default=popular[:4],
+                max_selections=8,
+                placeholder="Choose up to 8 services",
+            )
+            audience_label = st.radio(
+                "Who's watching?", list(AUDIENCES.keys()), index=1, horizontal=True
+            )
+            ceiling = AUDIENCE_CERT_CEILING[AUDIENCES[audience_label]]
+            if ceiling:
+                st.caption(f"Age-rating ceiling: {ceiling} or below. Unknown ratings are not treated as safe.")
+            else:
+                st.caption("No age-rating ceiling selected.")
+            genre_names = sorted(genres.values())
+            chosen_genres = st.multiselect(
+                "Pick up to 3 genres", genre_names, max_selections=3,
+                placeholder="Comedy, animation, sci-fi…",
+            )
+            c1, c2 = st.columns(2)
+            with c1:
+                runtime_label = st.selectbox("Maximum movie length", list(RUNTIME_OPTIONS.keys()))
+            with c2:
+                lang_label = st.selectbox("Movie language", list(LANGUAGE_OPTIONS.keys()))
+            submitted = st.form_submit_button(
+                "Next: add members", type="primary", use_container_width=True
+            )
 
     if submitted:
+        if not decade_selection:
+            st.error("Choose Any decade or select at least one release decade before continuing.")
+            return
+        if "Any decade" in decade_selection and len(decade_selection) > 1:
+            st.error("Choose Any decade by itself, or select one or more specific decades.")
+            return
+        chosen_decades = [value for value in decade_selection if value != "Any decade"]
         if not chosen_services:
             st.error("Choose at least one streaming service.")
             return
@@ -330,11 +373,11 @@ def page_preferences() -> None:
         }
         st.session_state.results = []
         st.session_state.verdict = None
+        st.session_state.member_search_error = None
         go("members")
 
     if st.button("Back home", use_container_width=True):
         go("home")
-
 
 def page_members() -> None:
     if not st.session_state.preferences:
@@ -355,7 +398,7 @@ def page_members() -> None:
         for i, name in enumerate(list(st.session_state.members)):
             col_name, col_remove = st.columns([4, 1])
             with col_name:
-                st.markdown(f"<div class='member-row'>👤 &nbsp; {name}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='member-row'>{name}</div>", unsafe_allow_html=True)
             with col_remove:
                 st.button("Remove", key=f"remove_member_{i}", on_click=remove_member_callback, args=(i,))
     else:
@@ -364,51 +407,56 @@ def page_members() -> None:
     st.write("")
     if st.button("Next: find our 5 movies", type="primary", use_container_width=True):
         if not st.session_state.members:
-            st.warning("Add at least one member first.")
-            return
-        prefs = st.session_state.preferences
-        try:
-            with st.spinner("Finding movies that fit your group's preferences…"):
-                db.init_db()
-                night_id = db.create_movie_night(None, prefs)
-                providers = tmdb_client.get_providers(prefs["region"])
-                genres = tmdb_client.get_genres()
-                provider_ids = [providers[name] for name in prefs["services"] if name in providers]
-                genre_ids = [gid for gid, name in genres.items() if name in prefs["genres"]]
-                matches, notes = recommender.find_five_movies(
-                    genre_ids=genre_ids,
-                    provider_ids=provider_ids,
-                    region=prefs["region"],
-                    max_runtime=prefs["max_runtime"],
-                    cert_ceiling=AUDIENCE_CERT_CEILING[prefs["audience"]],
-                    release_decades=prefs.get("release_decades", []),
-                    language=prefs["language"],
-                )
-            if not matches:
-                st.error(
-                    "TMDB couldn't find any movies verified for these settings. "
-                    "Try a different service, genre, or time limit."
-                )
-                return
-            db.record_recommendations(night_id, matches)
-            st.session_state.night_id = night_id
-            st.session_state.results = matches
-            st.session_state.relax_notes = notes
-            st.session_state.member_picks = {}
-            st.session_state.turn_index = 0
-            st.session_state.verdict = None
-            clear_vote_widget_state()
-            go("results")
-        except tmdb_client.TMDBConfigError as exc:
-            st.error(str(exc))
-        except tmdb_client.TMDBApiError as exc:
-            st.error(f"TMDB is not responding right now: {exc}")
-        except Exception as exc:
-            st.error(f"Something went wrong while finding movies: {exc}")
+            st.session_state.member_search_error = "Add at least one member first."
+        else:
+            st.session_state.member_search_error = None
+            prefs = st.session_state.preferences
+            try:
+                with st.spinner("Finding movies that fit your group's preferences…"):
+                    db.init_db()
+                    night_id = db.create_movie_night(None, prefs)
+                    providers = tmdb_client.get_providers(prefs["region"])
+                    genres = tmdb_client.get_genres()
+                    provider_ids = [providers[name] for name in prefs["services"] if name in providers]
+                    genre_ids = [gid for gid, name in genres.items() if name in prefs["genres"]]
+                    matches, notes = recommender.find_five_movies(
+                        genre_ids=genre_ids,
+                        provider_ids=provider_ids,
+                        region=prefs["region"],
+                        max_runtime=prefs["max_runtime"],
+                        cert_ceiling=AUDIENCE_CERT_CEILING[prefs["audience"]],
+                        release_decades=prefs.get("release_decades", []),
+                        language=prefs["language"],
+                    )
+                if not matches:
+                    st.session_state.member_search_error = (
+                        "TMDB couldn't find any movies verified for these settings. "
+                        "Try a different service, genre, or time limit."
+                    )
+                else:
+                    db.record_recommendations(night_id, matches)
+                    st.session_state.night_id = night_id
+                    st.session_state.results = matches
+                    st.session_state.relax_notes = notes
+                    st.session_state.member_picks = {}
+                    st.session_state.turn_index = 0
+                    st.session_state.verdict = None
+                    st.session_state.member_search_error = None
+                    clear_vote_widget_state()
+                    go("results")
+            except tmdb_client.TMDBConfigError as exc:
+                st.session_state.member_search_error = str(exc)
+            except tmdb_client.TMDBApiError as exc:
+                st.session_state.member_search_error = f"TMDB is not responding right now: {exc}"
+            except Exception as exc:
+                st.session_state.member_search_error = f"Something went wrong while finding movies: {exc}"
 
+    # Render feedback before the navigation action, including after empty results.
+    if st.session_state.get("member_search_error"):
+        st.error(st.session_state.member_search_error)
     if st.button("Back to preferences", use_container_width=True):
+        st.session_state.member_search_error = None
         go("preferences")
-
 
 def page_results() -> None:
     matches: list[MovieMatch] = st.session_state.results or []
@@ -525,7 +573,7 @@ def page_verdict() -> None:
     if is_tie:
         tied_movies = [movie_map[mid] for mid in tied_ids]
         if verdict["resolution"] == "random":
-            st.title("🎲 The tie-breaker picked…")
+            st.title("The tie-breaker picked…")
             st.write(
                 f"The top movies each received {verdict['top_score']} vote(s). "
                 "The winner below was chosen at random from the tied movies."
@@ -620,6 +668,9 @@ def inject_style() -> None:
         h1 { line-height: 1.08; }
         .hero-kicker, .step-label, .winner-label { color: #ff8a35 !important; font-weight: 800; letter-spacing: .14em; font-size: .72rem; }
         .hero-kicker { margin-bottom: .45rem; }
+        .brand-wordmark { color:#f4f4f5; font-size:.78rem; font-weight:900; letter-spacing:.16em; }
+        [data-testid="stImageButton"] button { padding:2px !important; background:#1b1c22 !important; border:1px solid #54321e !important; border-radius:14px !important; }
+        [data-testid="stImageButton"] img { display:block; width:58px !important; height:58px !important; object-fit:cover; border-radius:11px !important; }
         .hero-panel { display:flex; align-items:center; gap:1rem; background:linear-gradient(120deg,#2a201a,#201c1a); border:1px solid #54321e; padding:1rem 1.15rem; border-radius:18px; margin:.8rem 0 1.1rem; }
         .hero-number { color:#ff8a35; font-size:3rem; line-height:1; font-weight:900; }
         .hero-panel span { color:#d0cfd4; font-size:.9rem; }
@@ -712,6 +763,7 @@ def main() -> None:
     db.init_db()
     init_session()
     inject_style()
+    render_top_nav()
     pages = {
         "home": page_home,
         "preferences": page_preferences,

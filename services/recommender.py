@@ -1,4 +1,4 @@
-"""Recommendation engine: return up to five distinct movies, preserving the age ceiling."""
+"""Couch Verdict V.4.2 recommendation engine with strict decade/runtime filters."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -61,6 +61,12 @@ def find_five_movies(
     language: str | None = None,
     release_decades: list[int] | None = None,
 ) -> tuple[list[MovieMatch], list[str]]:
+    """Return up to five matches within the requested decades.
+
+    ``release_decades`` accepts decade start years (for example ``[1980, 2020]``).
+    The app and this service module must be deployed from the same release because
+    the app passes this argument by name.
+    """
     """Return up to five matches. Runtime and selected release decades stay strict.
 
     Genre and provider preferences may be broadened to find alternatives, but a
