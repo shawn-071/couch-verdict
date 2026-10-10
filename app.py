@@ -1,6 +1,7 @@
-"""Couch Verdict V.4.2: a simple, mobile-first group movie picker."""
+"""Couch Verdict V.4.3: a simple, mobile-first group movie picker."""
 from __future__ import annotations
 
+import base64
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,6 +13,7 @@ from services.recommender import AUDIENCE_CERT_CEILING, MovieMatch
 
 APP_DIR = Path(__file__).resolve().parent
 LOGO_PATH = APP_DIR / "assets" / "couch-verdict-logo.png"
+LOGO_BUTTON_PATH = APP_DIR / "assets" / "couch-verdict-logo-button.png"
 
 st.set_page_config(
     page_title="Couch Verdict",
@@ -145,15 +147,18 @@ def remove_member_callback(index: int) -> None:
 
 
 def render_top_nav() -> None:
-    """Show a clickable brand logo at the top-left of every app screen."""
+    """Show a compatible clickable logo button at the top-left of each screen.
+
+    Streamlit has no dedicated image-button widget in its public API. This uses
+    the stable st.button API and paints the button with the current logo using CSS.
+    """
     logo_col, brand_col, _spacer = st.columns([1.0, 3.0, 6.0], vertical_alignment="center", gap="small")
     with logo_col:
-        if st.image_button(
-            "Couch Verdict home",
-            str(LOGO_PATH),
+        if st.button(
+            "Home",
             help="Return to the Couch Verdict home page",
             key="global_logo_home_button",
-            width=64,
+            type="secondary",
         ):
             go("home")
     with brand_col:
@@ -669,8 +674,6 @@ def inject_style() -> None:
         .hero-kicker, .step-label, .winner-label { color: #ff8a35 !important; font-weight: 800; letter-spacing: .14em; font-size: .72rem; }
         .hero-kicker { margin-bottom: .45rem; }
         .brand-wordmark { color:#f4f4f5; font-size:.78rem; font-weight:900; letter-spacing:.16em; }
-        [data-testid="stImageButton"] button { padding:2px !important; background:#1b1c22 !important; border:1px solid #54321e !important; border-radius:14px !important; }
-        [data-testid="stImageButton"] img { display:block; width:58px !important; height:58px !important; object-fit:cover; border-radius:11px !important; }
         .hero-panel { display:flex; align-items:center; gap:1rem; background:linear-gradient(120deg,#2a201a,#201c1a); border:1px solid #54321e; padding:1rem 1.15rem; border-radius:18px; margin:.8rem 0 1.1rem; }
         .hero-number { color:#ff8a35; font-size:3rem; line-height:1; font-weight:900; }
         .hero-panel span { color:#d0cfd4; font-size:.9rem; }
@@ -757,6 +760,42 @@ def inject_style() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+    # Use a small pre-sized copy of the brand mark as the button background.
+    # This avoids relying on an image-button widget that Streamlit does not have.
+    if LOGO_BUTTON_PATH.exists():
+        logo_data = base64.b64encode(LOGO_BUTTON_PATH.read_bytes()).decode("ascii")
+        st.markdown(
+            f"""
+            <style>
+            .stApp .st-key-global_logo_home_button [data-testid="stButton"] > button,
+            .stApp .st-key-global_logo_home_button div.stButton > button {{
+              width:64px !important; min-width:64px !important;
+              height:64px !important; min-height:64px !important;
+              padding:0 !important; margin:0 !important;
+              background-color:#101114 !important;
+              background-image:url("data:image/png;base64,{logo_data}") !important;
+              background-position:center !important; background-repeat:no-repeat !important;
+              background-size:cover !important;
+              border:1px solid #54321e !important; border-radius:16px !important;
+              color:transparent !important; font-size:0 !important;
+              box-shadow:none !important;
+            }}
+            .stApp .st-key-global_logo_home_button button p,
+            .stApp .st-key-global_logo_home_button button span {{
+              color:transparent !important; font-size:0 !important;
+              line-height:0 !important; visibility:hidden !important;
+            }}
+            .stApp .st-key-global_logo_home_button button:hover {{
+              border-color:#ff8a35 !important; transform:translateY(-1px);
+            }}
+            .stApp .st-key-global_logo_home_button button:focus-visible {{
+              outline:2px solid #ff8a35 !important; outline-offset:3px !important;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def main() -> None:

@@ -1,4 +1,4 @@
-# Couch Verdict V.4.2
+# Couch Verdict V.4.3
 
 A simple, mobile-first movie-night picker with a dark navy and orange theme. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
 
@@ -73,3 +73,8 @@ The local SQLite database is not permanent storage on Streamlit Community Cloud;
 ## Updating an existing deployment
 
 Replace the matching files in the repository root with the files from the ZIP, including both `app.py` and the entire `services/` folder. These files are version-coupled: `app.py` calls `find_five_movies(..., release_decades=...)`, so leaving an older `services/recommender.py` in place causes an unexpected-keyword error. Do not upload the ZIP itself as a single file, and do not nest the contents under an extra folder.
+
+
+### V.4.3 compatibility fix
+
+The top-left logo navigation uses Streamlit's supported `st.button` widget styled with the bundled logo image. Streamlit does not expose an `st.image_button` widget, so this avoids the `AttributeError` seen in deployment. The regular button remains keyboard-focusable and routes to Home when clicked.
