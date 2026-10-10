@@ -1,31 +1,35 @@
-# Couch Verdict V.4.4
+# 🍿 Couch Verdict
 
-A simple, mobile-first movie-night picker with a dark navy and orange theme. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
+**Find a movie everyone can agree on — in under two minutes.**
 
+Couch Verdict ends family movie-night decision paralysis. Pick the streaming
+services you actually pay for, set your group's shared limits (who's watching,
+genres, time available), and get exactly five movies that fit — then let the
+group vote.
 
-## V.4.4 changes
+## Features
 
-- Release decades now appears immediately below “Pick up to 3 genres” inside the bordered preferences card.
-- The Release decades multiselect disables Streamlit's bulk “Select all” action while keeping “Any decade”.
-- A clickable logo button at the top-left returns to Home on every step. The current page is mirrored in the `?page=` URL parameter so browser Back/Forward can restore prior steps.
-- The no-movies/error state retains its Back to preferences button.
-- All brand-image usages and the browser tab icon use the newest supplied logo.
+- **Shared-preference filter**: streaming services, audience age level
+  (kids / mixed / adults), up to 3 genres, runtime cap, release year and
+  language.
+- **Always five movies**: a relaxation ladder keeps broadening the search
+  (any of your genres → any length → top picks on your services) until five
+  verified matches are found. Near-matches are labelled honestly, and the
+  **age ceiling is never relaxed** — movies without a verified US rating are
+  never shown as kid-safe.
+- **Group voting**: everyone votes Watch this / Maybe / Pass; the majority
+  pick becomes the verdict.
+- **Live statistics** on the home page: movie nights, recommendations, votes,
+  saved movies (activity for the current deployment instance).
+- **Accounts with passwords**: create an account or sign in; voters just type their name.
+- **Saved watchlist** per profile.
 
-## How it works
+## Data & credits
 
-1. Choose your streaming region, services, audience, genres, maximum movie length (kept as a strict limit), release decades, and language. You must explicitly select “Any decade” or at least one decade; “Any decade” cannot be combined with specific decades.
-2. Add the names of everyone voting.
-3. Review the movie shortlist found using TMDB.
-4. Each person gets a preselected first movie and can tap another option, then passes the phone to the next person.
-5. The movie with the most picks wins. If there is a tie, the app recommends the highest-rated tied movie on TMDB; the group can randomize the winner with an animation.
-
-There is no account or sidebar. The home page shows fictional, continuously updating movie-indecision counters. These are simulated estimates, not analytics, and refresh every 3 seconds.
-
-## Branding and theme
-
-- `.streamlit/config.toml` explicitly sets the dark palette and orange accent.
-- The latest logo in `assets/couch-verdict-logo.png` is used in the top-left home button, home page, poster fallbacks, and browser tab icon.
-- CSS requests Century Gothic first, followed by platform-specific fallbacks. Century Gothic must be installed on the viewer's device for the exact typeface to render; otherwise the browser uses a fallback.
+Movie data and streaming availability come from
+[TMDB](https://www.themoviedb.org). Age ratings shown are US theatrical
+ratings (G / PG / PG-13). Streaming availability depends on the selected
+region.
 
 ## Run locally
 
@@ -33,53 +37,46 @@ There is no account or sidebar. The home page shows fictional, continuously upda
 pip install -r requirements.txt
 ```
 
-Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and add your TMDB API key:
+Create `.streamlit/secrets.toml` (copy the example) and add your TMDB API key:
 
 ```toml
 [tmdb]
 api_key = "YOUR_TMDB_API_KEY"
 ```
 
-Then run:
+Then:
 
 ```bash
 streamlit run app.py
 ```
 
-For Streamlit Community Cloud, paste the same TOML block into the app's **Settings → Secrets**. Never commit a real API key to GitHub.
+## Deploy on Streamlit Community Cloud
+
+1. Push this repo to GitHub.
+2. On [share.streamlit.io](https://share.streamlit.io), create a new app from
+   the repo with `app.py` as the entry point.
+3. In the app's **Settings → Secrets**, paste:
+
+```toml
+[tmdb]
+api_key = "YOUR_TMDB_API_KEY"
+```
+
+4. Reboot the app. Done — no key ever touches GitHub.
 
 ## Project structure
 
 ```text
 couch-verdict/
-├── app.py
+├── app.py                    # UI: home, preferences, results, vote, saved
 ├── requirements.txt
-├── assets/
-│   └── couch-verdict-logo.png
 ├── services/
-│   ├── __init__.py
-│   ├── db.py
-│   ├── recommender.py
-│   └── tmdb_client.py
+│   ├── tmdb_client.py        # TMDB API calls (cached)
+│   ├── recommender.py        # always-5 relaxation engine
+│   └── db.py                 # SQLite stats, votes, watchlist
 └── .streamlit/
-    ├── config.toml
-    └── secrets.toml.example
+    └── secrets.toml.example  # template; real secrets stay local/cloud-only
 ```
 
-Movie information, ratings, posters, and streaming availability come from [TMDB](https://www.themoviedb.org). Streaming availability depends on the selected region. US age ratings are used by the recommendation engine.
-
-The local SQLite database is not permanent storage on Streamlit Community Cloud; its contents may reset when the app container restarts.
-
-## Updating an existing deployment
-
-Replace the matching files in the repository root with the files from the ZIP, including both `app.py` and the entire `services/` folder. These files are version-coupled: `app.py` calls `find_five_movies(..., release_decades=...)`, so leaving an older `services/recommender.py` in place causes an unexpected-keyword error. Do not upload the ZIP itself as a single file, and do not nest the contents under an extra folder.
-
-
-### V.4.3 compatibility fix
-
-The top-left logo navigation uses Streamlit's supported `st.button` widget styled with the bundled logo image. Streamlit does not expose an `st.image_button` widget, so this avoids the `AttributeError` seen in deployment. The regular button remains keyboard-focusable and routes to Home when clicked.
-
-
-### V.4.4 layout update
-
-The Release decades multiselect is placed directly beneath the genre selector, inside the same bordered preferences card as the other filters. The selection validation and recommendation behavior are unchanged.
+Note: the SQLite database lives in the app container, so stats reset if the
+app restarts on Community Cloud.
