@@ -262,5 +262,25 @@ class LadderTest(unittest.TestCase):
         self.assertNotIn("No Date", titles)
 
 
+    def test_all_steps_keep_floor_and_year_bounds(self):
+        """Every relaxation step must forward the rating floor and year bounds."""
+        calls = []
+
+        def discover(**params):
+            calls.append(params)
+            return []
+
+        tmdb_client.discover = discover
+        recommender.find_five_movies(
+            genre_ids=[35], provider_ids=[8], region="US",
+            cert_ceiling=None, cert_floor="R", min_year=1995, max_year=2005,
+        )
+        self.assertEqual(len(calls), 5)  # all five steps ran
+        for params in calls:
+            self.assertEqual(params.get("cert_floor"), "R")
+            self.assertEqual(params.get("min_year"), 1995)
+            self.assertEqual(params.get("max_year"), 2005)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

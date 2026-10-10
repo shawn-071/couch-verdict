@@ -7,6 +7,7 @@ running instance; it is not permanent global history.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -72,9 +73,43 @@ def _conn():
         connection.close()
 
 
+def _migrate(connection) -> None:
+    """Non-destructive upgrades for databases created by older versions."""
+    cols = connection.execute("PRAGMA table_info(votes)").fetchall()
+    if not cols:
+        return
+    has_unique = False
+    for row in connection.execute("PRAGMA index_list(votes)").fetchall():
+        if row["unique"]:
+            members = connection.execute(
+                f"PRAGMA index_info('{row['name']}')"
+            ).fetchall()
+            if [m["name"] for m in members] == ["night_id", "movie_id", "voter"]:
+                has_unique = True
+    if not has_unique:
+        connection.executescript("""
+            CREATE TABLE votes_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                night_id INTEGER REFERENCES movie_nights(id),
+                movie_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                choice TEXT NOT NULL,
+                voter TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(night_id, movie_id, voter)
+            );
+            INSERT OR IGNORE INTO votes_new
+                (night_id, movie_id, title, choice, voter, created_at)
+            SELECT night_id, movie_id, title, choice, voter, created_at FROM votes;
+            DROP TABLE votes;
+            ALTER TABLE votes_new RENAME TO votes;
+        """)
+
+
 def init_db() -> None:
     with _conn() as connection:
         connection.executescript(_SCHEMA)
+        _migrate(connection)
 
 
 def upsert_user(name: str) -> int:
@@ -114,7 +149,7 @@ def register_user(name: str, password: str) -> tuple[int | None, str]:
 
 
 def login_user(name: str, password: str) -> tuple[int | None, str]:
-    """Verify credentials. Returns (user_id, error_message)."""
+    """Verify credentials. Legacy hashes are upgraded to PBKDF2 on success."""
     with _conn() as connection:
         row = connection.execute(
             "SELECT id, password_hash FROM users WHERE name = ?", (name.strip(),)
@@ -122,16 +157,30 @@ def login_user(name: str, password: str) -> tuple[int | None, str]:
     if not row:
         return None, "No account with that name — create one first."
     stored = row["password_hash"] or ""
-    try:
-        scheme, iterations, salt, digest = stored.split("$", 3)
-        if scheme != "pbkdf2":
-            return None, "This account needs to be recreated (old format)."
-        if not secrets.compare_digest(
-            digest, _hash_password(password, salt, int(iterations))
-        ):
+    if stored.startswith("pbkdf2$"):
+        try:
+            scheme, iterations, salt, digest = stored.split("$", 3)
+            ok = secrets.compare_digest(
+                digest, _hash_password(password, salt, int(iterations))
+            )
+        except (ValueError, TypeError):
+            ok = False
+        if not ok:
             return None, "Wrong password."
-    except (ValueError, TypeError):
+        return row["id"], ""
+    # Legacy salted SHA-256 from the earlier version: verify, then upgrade.
+    legacy = hashlib.sha256(
+        f"couch::{name.strip()}::{password}".encode()
+    ).hexdigest()
+    if not secrets.compare_digest(stored, legacy):
         return None, "Wrong password."
+    iterations = 240_000
+    salt = secrets.token_hex(16)
+    new_hash = f"pbkdf2${iterations}${salt}${_hash_password(password, salt, iterations)}"
+    with _conn() as connection:
+        connection.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, row["id"])
+        )
     return row["id"], ""
 
 
