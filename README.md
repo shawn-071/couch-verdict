@@ -1,11 +1,11 @@
-# Couch Verdict V.4.3
+# Couch Verdict V.4.4
 
 A simple, mobile-first movie-night picker with a dark navy and orange theme. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
 
 
-## V.4.2 changes
+## V.4.4 changes
 
-- The preferences card now visibly encloses the streaming region and all filters, including Release decades.
+- Release decades now appears immediately below “Pick up to 3 genres” inside the bordered preferences card.
 - The Release decades multiselect disables Streamlit's bulk “Select all” action while keeping “Any decade”.
 - A clickable logo button at the top-left returns to Home on every step. The current page is mirrored in the `?page=` URL parameter so browser Back/Forward can restore prior steps.
 - The no-movies/error state retains its Back to preferences button.
@@ -78,3 +78,8 @@ Replace the matching files in the repository root with the files from the ZIP, i
 ### V.4.3 compatibility fix
 
 The top-left logo navigation uses Streamlit's supported `st.button` widget styled with the bundled logo image. Streamlit does not expose an `st.image_button` widget, so this avoids the `AttributeError` seen in deployment. The regular button remains keyboard-focusable and routes to Home when clicked.
+
+
+### V.4.4 layout update
+
+The Release decades multiselect is placed directly beneath the genre selector, inside the same bordered preferences card as the other filters. The selection validation and recommendation behavior are unchanged.

@@ -1,4 +1,4 @@
-"""Couch Verdict V.4.3: a simple, mobile-first group movie picker."""
+"""Couch Verdict V.4.4: a simple, mobile-first group movie picker."""
 from __future__ import annotations
 
 import base64
@@ -302,21 +302,12 @@ def page_preferences() -> None:
 
         # Reset once for the new release so stale widget values from a previous release
         # cannot make a previously unsubmitted decade choice appear valid.
-        if st.session_state.get("_release_decade_picker_version") != "4.2":
+        if st.session_state.get("_release_decade_picker_version") != "4.4":
             st.session_state["release_decade_picker"] = []
-            st.session_state["_release_decade_picker_version"] = "4.2"
+            st.session_state["_release_decade_picker_version"] = "4.4"
         st.session_state.setdefault("release_decade_picker", [])
 
         with st.form("preferences_form"):
-            decade_choices = ["Any decade", *DECADE_OPTIONS.keys()]
-            decade_selection = st.multiselect(
-                "Release decades",
-                decade_choices,
-                key="release_decade_picker",
-                placeholder="Choose Any decade or specific decades",
-                help="Choose Any decade by itself, or select one or more specific decades.",
-                select_all=False,
-            )
             popular = [name for name in [
                 "Netflix", "Prime Video", "Disney Plus", "Apple TV+", "Apple TV",
                 "Max", "Hulu", "Paramount+",
@@ -341,6 +332,15 @@ def page_preferences() -> None:
             chosen_genres = st.multiselect(
                 "Pick up to 3 genres", genre_names, max_selections=3,
                 placeholder="Comedy, animation, sci-fi…",
+            )
+            decade_choices = ["Any decade", *DECADE_OPTIONS.keys()]
+            decade_selection = st.multiselect(
+                "Release decades",
+                decade_choices,
+                key="release_decade_picker",
+                placeholder="Choose Any decade or specific decades",
+                help="Choose Any decade by itself, or select one or more specific decades.",
+                select_all=False,
             )
             c1, c2 = st.columns(2)
             with c1:
