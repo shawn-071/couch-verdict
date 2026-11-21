@@ -1,9 +1,9 @@
-# Couch Verdict V.5.0
+# Couch Verdict V.5.1
 
 A simple, mobile-first movie-night picker with a dark navy and orange theme. Choose shared preferences, add the people in the room, review a five-movie shortlist, then pass one phone around so everyone can vote once.
 
 
-## V.5.0 changes
+## V.5.1 changes
 
 - Country/region choices are loaded dynamically from TMDB's supported streaming-provider regions, instead of a short hard-coded country list.
 - Movie-language choices are loaded dynamically from TMDB's configuration language list, including every ISO 639-1 language currently listed there.
